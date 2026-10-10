@@ -88,6 +88,11 @@ export class RankingExecutor {
         return
       }
 
+      // 按邮箱去重：同一邮箱可能以多个 committer 名称出现（如 jinxin / jinxin3 共用同一邮箱），
+      // 若按 (name|email) 逐条采集会被重复统计。这里每个邮箱只保留一条，并以提交数最多的名称作为展示名，
+      // 累计提交数，避免后续 --merge 把重复行相加导致总数翻倍。
+      allAuthors = dedupeAuthorsByEmail(allAuthors)
+
       if (allAuthors.length === 0) {
         spinner.fail('作者过滤后无提交者')
         return
@@ -101,7 +106,9 @@ export class RankingExecutor {
       if (options.merge) {
         const { AuthorMerger } = await import('../../core/author-merger')
         const merger = new AuthorMerger()
-        mergeMap = merger.getMergeMap(allAuthors.map((a) => ({ name: a.name, email: a.email })))
+        mergeMap = merger.getMergeMap(
+          allAuthors.map((a) => ({ name: a.name, email: a.email, commitCount: a.commitCount })),
+        )
 
         if (mergeMap.size > 0) {
           console.log(chalk.blue('🔄 启用作者合并:'), `将合并 ${mergeMap.size} 个身份`)
@@ -236,6 +243,36 @@ function mergeAuthorStats(
   }
 
   return Array.from(merged.values())
+}
+
+/**
+ * 按邮箱去重提交者列表
+ * 同一个邮箱可能对应多个 committer 名称（例如同一人换了电脑/配置导致名称不同），
+ * 这些身份在 git 中指向同一批提交。若逐条采集会被重复统计。
+ * 这里每个邮箱只保留一条记录，并把提交数累加，展示名取提交数最多的那个名称。
+ */
+function dedupeAuthorsByEmail(
+  authors: Array<{ name: string; email: string; commitCount: number }>,
+): Array<{ name: string; email: string; commitCount: number }> {
+  const byEmail = new Map<string, { name: string; email: string; commitCount: number }>()
+
+  for (const a of authors) {
+    const key = a.email.toLowerCase()
+    const existing = byEmail.get(key)
+    if (!existing) {
+      byEmail.set(key, { name: a.name, email: a.email, commitCount: a.commitCount })
+      continue
+    }
+
+    const prevCount = existing.commitCount
+    existing.commitCount += a.commitCount
+    // 保留提交数更多的名称作为展示名
+    if (a.commitCount > prevCount) {
+      existing.name = a.name
+    }
+  }
+
+  return Array.from(byEmail.values())
 }
 
 /**

@@ -76,18 +76,44 @@ export class AuthorMerger {
       nameGroups.get(normalizedName)!.push(identity)
     }
 
-    // 3. 构建分组结果
-    const groups: AuthorGroup[] = []
-
+    // 3. 先按名称分组并去重邮箱
     nameGroups.forEach((identities, normalizedName) => {
-      // 去重邮箱（同一名称下可能有重复邮箱）
+      nameGroups.set(normalizedName, this.deduplicateIdentities(identities))
+    })
+
+    // 3.5 合并名称相似的不同名称组（如 jinxin 与 jinxin3 实为同一人），
+    // 避免同一人被拆成多行，也避免后续按邮箱归并后仍然分散。
+    const mergedNames = new Set<string>()
+    for (const gA of Array.from(nameGroups.values())) {
+      const aName = this.selectPrimaryName(gA).toLowerCase()
+      if (mergedNames.has(aName)) continue
+      for (const gB of Array.from(nameGroups.values())) {
+        if (gB === gA) continue
+        const bName = this.selectPrimaryName(gB).toLowerCase()
+        if (mergedNames.has(bName)) continue
+        if (this.areSimilarNames(this.selectPrimaryName(gA), this.selectPrimaryName(gB))) {
+          for (const id of gB) {
+            const existing = gA.find((x) => x.email.toLowerCase() === id.email.toLowerCase())
+            if (existing) {
+              // 同一邮箱、不同名称变体（如 jinxin 与 jinxin3 共用 jinxin@dreame.tech）：
+              // 这是同一人，应累加提交数，而非当成已存在而跳过（否则会丢提交导致总数偏低）。
+              existing.commitCount = (existing.commitCount || 0) + (id.commitCount || 0)
+            } else {
+              gA.push(id)
+            }
+          }
+          mergedNames.add(bName)
+          nameGroups.delete(bName)
+        }
+      }
+    }
+
+    // 3.6 构建分组结果
+    const groups: AuthorGroup[] = []
+    nameGroups.forEach((identities) => {
       const uniqueIdentities = this.deduplicateIdentities(identities)
-
-      // 选择出现次数最多的名称作为主名称（保留原始大小写）
       const primaryName = this.selectPrimaryName(uniqueIdentities)
-
       const totalCommits = uniqueIdentities.reduce((sum, id) => sum + (id.commitCount || 0), 0)
-
       groups.push({
         primaryName,
         identities: uniqueIdentities.sort((a, b) => (b.commitCount || 0) - (a.commitCount || 0)),

@@ -247,6 +247,20 @@ code996 ranking
 # 就这么简单！
 ```
 
+## 🐛 已知问题修复
+
+### `--merge` 重复计数（已修复）
+
+**问题**：旧实现中 `getAllAuthors()` 以 `名称|邮箱` 去重，但每个作者的数据采集（`collectForAuthor`）改用**邮箱**精确匹配。当同一个邮箱以多个提交者名称出现时（例如 `jinxin` 与 `jinxin3` 共用 `jinxin3@dreame.tech`），该邮箱会被重复采集多次；`mergeAuthorStats()` 再把这些重复行相加，导致排行榜总提交数翻倍（实测 `jinxin3` 2×、`chaipeng` 2×、`yanxiao` 3×），与 `git log` 真实提交数严重不符。
+
+**修复**：
+
+1. `git-collector.ts` 的 `getAllAuthors()` 现在返回每个 `名称|邮箱` 身份的提交数（`commitCount`）。
+2. `ranking.ts` 在采集前先按**邮箱去重**（`dedupeAuthorsByEmail`），每个邮箱只保留一条、仅采集一次，并以提交数最多的名称作为展示名。
+3. `author-merger.ts` 增加**名称相似变体合并**（如 `jinxin` / `jinxin3`），并保证主身份按 `commitCount` 选择，消除同一人被拆成多行的问题。
+
+**验证**：修复后用 `code996 ranking --all-time --merge --exclude-authors jenkins` 统计真实仓库，总提交数与 `git log` 口径一致，不再翻倍。
+
 ## 📚 更多信息
 
 - 查看完整文档: `code996 help`

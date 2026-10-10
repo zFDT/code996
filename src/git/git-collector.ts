@@ -722,9 +722,12 @@ export class GitCollector {
   }
 
   /**
-   * 获取所有提交者列表（name<email>格式）
+   * 获取所有提交者列表（name<email>格式），并附带每个身份的提交数
+   * 返回的每个元素都是唯一的 (name|email) 组合，commitCount 为该组合的提交次数
    */
-  public async getAllAuthors(options: GitLogOptions): Promise<Array<{ name: string; email: string }>> {
+  public async getAllAuthors(
+    options: GitLogOptions,
+  ): Promise<Array<{ name: string; email: string; commitCount: number }>> {
     const { path } = options
 
     const args = ['log', '--format=%an|%ae']
@@ -733,8 +736,8 @@ export class GitCollector {
     const output = await this.execGitCommand(args, path)
     const lines = output.split('\n').filter((line) => line.trim())
 
-    // 使用 Map 去重，key 为 "name|email"
-    const authorsMap = new Map<string, { name: string; email: string }>()
+    // 以 "name|email" 为键统计每个身份的提交数
+    const authorsMap = new Map<string, { name: string; email: string; commitCount: number }>()
 
     for (const line of lines) {
       const trimmed = line.trim()
@@ -744,12 +747,15 @@ export class GitCollector {
       if (parts.length === 2) {
         const name = parts[0]
         const email = parts[1]
-        if (name === undefined || email === undefined) {
+        if (name === undefined || email === undefined || !name || !email) {
           continue
         }
         const key = `${name}|${email}`
-        if (!authorsMap.has(key)) {
-          authorsMap.set(key, { name, email })
+        const existing = authorsMap.get(key)
+        if (existing) {
+          existing.commitCount += 1
+        } else {
+          authorsMap.set(key, { name, email, commitCount: 1 })
         }
       }
     }
