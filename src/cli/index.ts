@@ -42,6 +42,7 @@ export class CLIManager {
     this.setupDefaultAnalyzeAction()
     this.addTrendCommand()
     this.addRankingCommand()
+    this.addQualityCommand()
     this.addHelpCommand()
 
     // 错误处理
@@ -175,6 +176,48 @@ export class CLIManager {
       })
 
     this.program.addCommand(rankingCmd)
+  }
+
+  /** 注册 quality 命令，去噪/分类/归一化的研发贡献质量分析 */
+  private addQualityCommand(): void {
+    const qualityCmd = new Command('quality')
+      .description('去噪/分类/归一化的研发贡献质量分析（替代单一行数口径）')
+      .option('-s, --since <date>', '开始日期 (YYYY-MM-DD)')
+      .option('-u, --until <date>', '结束日期 (YYYY-MM-DD)')
+      .option('-y, --year <year>', '指定年份或年份范围 (例如: 2025 或 2023-2025)')
+      .option('--all-time', '查询所有时间的数据')
+      .option('--self', '仅统计当前 Git 用户的提交 (author 的快捷方式)')
+      .option('--author <name>', '仅统计指定作者（支持名称或邮箱部分匹配）')
+      .option(
+        '--exclude-authors <names>',
+        '排除作者（逗号分隔，支持名称或邮箱部分匹配，适用于排除 bot/CI 等自动化账号）'
+      )
+      .option('--survival', '用 git blame 统计每人的「存活代码行」（当前仍存在的代码量）')
+      .argument('[repoPath]', 'Git 仓库根目录路径（默认当前目录）')
+      .action(async (repoPath: string | undefined, options: any, command: Command) => {
+        const processedArgs = typeof repoPath === 'string' ? 1 : 0
+        const extraArgs = (command.args ?? []).slice(processedArgs)
+
+        if (extraArgs.length > 0) {
+          const invalid = extraArgs[0]
+          console.error(chalk.red(`错误: 未知命令 '${invalid}'`))
+          console.log('运行 code996 help 查看可用命令')
+          process.exit(1)
+        }
+
+        const targetPath = this.resolveTargetPath(repoPath, `${this.program.name()} quality`)
+        await this.handleQuality(targetPath, options)
+      })
+
+    this.program.addCommand(qualityCmd)
+  }
+
+  /** 处理贡献质量分析流程的执行逻辑，targetPath 为已校验的 Git 根目录 */
+  private async handleQuality(targetPath: string, options: any): Promise<void> {
+    const mergedOptions = this.mergeGlobalOptions(options)
+    const { QualityExecutor } = await import('./commands/quality')
+    await QualityExecutor.execute(targetPath, mergedOptions)
+    printGlobalNotices()
   }
 
   /** 注册 help 命令，提供统一的帮助入口 */
@@ -330,6 +373,7 @@ ${chalk.bold('使用方法:')}
 ${chalk.bold('命令:')}
   trend             查看月度996指数和工作时间的变化趋势
   ranking           统计排序所有提交者的996指数（卷王排行榜）
+  quality           去噪/分类/归一化的研发贡献质量分析（替代单一行数口径）
   help              显示帮助信息
 
 ${chalk.bold('全局选项:')}
@@ -375,6 +419,7 @@ ${chalk.bold('示例:')}
   code996 ranking --author 张三  # 查看指定作者的详细信息
   code996 ranking --exclude-authors bot,CI  # 排除机器人
   code996 ranking --merge       # 合并同名不同邮箱的作者统计
+  code996 quality --exclude-authors jenkins  # 贡献质量分析（排除 CI，剔除依赖/生成/格式化噪声）
 
   ${chalk.gray('# 自定义下班时间与加班分级')}
   code996 --end-hour 18         # 设置18点下班，自动分析加班严重程度

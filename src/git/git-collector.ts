@@ -8,6 +8,7 @@ import {
   DailyLatestCommit,
   DailyCommitHours,
 } from '../types/git-types'
+import { fileCategory } from '../core/contribution-config'
 import chalk from 'chalk'
 
 export class GitCollector {
@@ -777,5 +778,51 @@ export class GitCollector {
     }
 
     return await this.collect(authorOptions)
+  }
+
+  /**
+   * 获取含 numstat 的完整 git log（贡献质量分析用）
+   * 自定义格式：COMMIT 后跟 hash / name / email / date / msg，再跟若干 <add>\t<del>\t<path> 行
+   */
+  public async getNumstatLog(options: GitLogOptions): Promise<string> {
+    const { path } = options
+    const args = [
+      'log',
+      '--numstat',
+      '--date=short',
+      '--pretty=format:COMMIT%n%H%n%an%n%ae%n%ad%n%s',
+      '--no-merges',
+    ]
+    this.applyCommonFilters(args, options)
+    return this.execGitCommand(args, path)
+  }
+
+  /**
+   * 统计当前 HEAD 每人的「存活代码行」（仅 source 文件，基于 git blame）
+   * 用于贡献质量分析的「存活代码比」维度。
+   */
+  public async getSurvivalLines(path: string): Promise<Map<string, number>> {
+    const filesOut = await this.execGitCommand(['ls-files'], path)
+    const files = filesOut.split('\n').map((f) => f.trim()).filter(Boolean)
+    const counts = new Map<string, number>()
+    for (const f of files) {
+      if (fileCategory(f) !== 'source') continue
+      let out: string
+      try {
+        out = await this.execGitCommand(['blame', '--line-porcelain', 'HEAD', '--', f], path)
+      } catch {
+        continue
+      }
+      for (const line of out.split('\n')) {
+        if (line.startsWith('author-mail ')) {
+          const m = line.split('<')[1]
+          if (m) {
+            const email = m.replace('>', '').trim().toLowerCase()
+            counts.set(email, (counts.get(email) ?? 0) + 1)
+          }
+        }
+      }
+    }
+    return counts
   }
 }

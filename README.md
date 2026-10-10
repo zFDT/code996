@@ -59,6 +59,7 @@ code996
 
 - `trend`：查看月度996指数和工作时间的变化趋势
 - `ranking`：统计排序所有提交者的996指数（卷王排行榜）🆕
+- `quality`：研发贡献质量分析——去噪/分类/归一化，用多维度贡献分替代单一行数口径🆕
 - `help`：显示帮助信息
 
 - `-y, --year <year>`：指定年份或年份范围（推荐）
@@ -100,6 +101,11 @@ code996 ranking                # 查看所有提交者的996指数排名
 code996 ranking -y 2024        # 查看2024年的排名
 code996 ranking --author 张三   # 查看指定作者的详细信息
 code996 ranking --exclude-authors bot,CI  # 排除机器人账号
+
+# 🆕 贡献质量分析（去噪/分类/归一化，替代单一行数口径）
+code996 quality --all-time                       # 全量贡献质量分析
+code996 quality --all-time --exclude-authors jenkins,ci  # 排除 CI/机器人
+code996 quality --all-time --survival            # 叠加 git blame 存活代码行
 
 # 🆕 过滤示例（同样适用于 trend / 基础分析）
 code996 --author alice         # 只看 alice 的整体分析

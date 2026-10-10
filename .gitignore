@@ -30,3 +30,6 @@ yarn.lock
 # AI collaboration (optional)
 .cursor/
 .claude/
+
+# WorkBuddy project memory (internal, not part of source)
+.workbuddy/

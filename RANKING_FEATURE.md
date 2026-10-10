@@ -261,6 +261,81 @@ code996 ranking
 
 **验证**：修复后用 `code996 ranking --all-time --merge --exclude-authors jenkins` 统计真实仓库，总提交数与 `git log` 口径一致，不再翻倍。
 
+## 📐 研发贡献质量分析 - `quality` 命令
+
+> 背景：单纯以「代码行数」作为工作量判据有严重失真。例如某 Flutter 仓库中，A 的 61 万行增量被误认为「大量格式化 / 自动生成 / 依赖升级」贡献，B 净删 10.6 万行（依赖与旧模块清理）被误判为「负产出」。`quality` 命令用**去噪 / 分类 / 归一化**把「行数」替换成多维度贡献分。
+
+### 核心思路
+
+1. **去噪（Noise）**：按路径正则剔除 `lock` / `generated`（`*.g.dart`、minified、`*.gen.*`）/ `vendor`（`pubspec.lock`、`node_modules`、`.dart_tool` 等）文件，这些文件的增删不计入「有效改动」，单独计入 `噪音%`。
+2. **分类（Classify）**：对每条提交按 **commit message** 归类：
+   - 有效类型：`feat` / `fix` / `refactor` / `test` / `perf` / `style`（含 `revert`）
+   - 低价值类型：`format`（`format`/`reformat`/`整理`/`对齐`）/ `generated` / `chore` / `deps`（依赖升级）
+   - 低价值类型提交的源码行计入 `低价值行`，**不计入有效改动**，但保留其有效提交（若改动过真实源码）。
+3. **归一化（Normalize）**：把四个维度各自按最大值归一化后加权，得到 0–100 的**贡献分**：
+
+   ```text
+   贡献分 = 有效提交×0.4 + 有效改动(churn)×0.3 + 活跃天×0.2 + 模块数×0.1
+   ```
+
+   - `有效改动` = 仅源码且非格式化/生成/依赖类提交的 `增+删`（写和删都计，因此「净删 10 万行清理」是正向贡献）。
+   - 同人合并：邮箱相同、或「去数字后的名字」相同（`jinxin`/`jinxin3`、`Marko`/`Marko2`）自动合并为单一身份，避免被拆成多行。
+
+### 用法
+
+```bash
+# 全量分析（默认最近一年，--all-time 取全部历史）
+code996 quality --all-time
+
+# 排除 CI / 机器人账号
+code996 quality --all-time --exclude-authors jenkins,ci
+
+# 仅看某人
+code996 quality --author 张三
+
+# 叠加「存活代码行」（git blame 当前 HEAD 每人的存量代码量，耗时较长）
+code996 quality --all-time --survival
+```
+
+选项与 `ranking` 基本对齐：`-s/--since`、`-u/--until`、`-y/--year`、`--all-time`、`--self`、`--author`、`--exclude-authors`、`--survival`。
+
+### 指标说明
+
+| 列 | 含义 |
+|----|------|
+| 贡献分 | 0–100 归一化综合分（越高越好） |
+| 提交 / 有效提交 | 总提交数 / 改动过真实源码的提交数 |
+| 原始+/− | 全量增删行（含依赖/生成/锁文件） |
+| 有效改动 | 仅源码且非低价值类型的真实增删（写+删都计） |
+| 低价值行 | format / generated / chore / deps 类提交的源码行 |
+| 噪音% | (噪音行 + 低价值行) / 原始总行 |
+| 活跃天 | 有提交的不同日期数 |
+| 模块 | 触及的不同顶层目录/模块数 |
+| rev | revert 类提交数 |
+| 存活行 | `--survival` 时显示：当前 HEAD 中该作者仍拥有的代码行数 |
+
+### 输出示例（zm_app 实测）
+
+```text
+贡献分  作者          提交   有效提交  原始+/−            有效改动    低价值行  噪音%  活跃天  模块  rev
+  80.9  zhanghongxin2  1415    1411 +266,231/−104,107     362,753     4,202   2.0%   329   32    1
+  72.3  闫晓            626     624 +614,619/−391,082     994,820     7,251   1.1%   287   23    3
+  51.2  jinxin3        696     692 +119,691/−226,100     342,857       702   0.8%   242   21    0
+  41.7  weixiaozhen    637     636 +78,895/−43,477       122,029        75   0.3%   267   12    8
+  36.6  Marko          396     395 +191,145/−88,124      276,603       562   1.0%   199   16    7
+  18.3  Ben            245     245 +40,060/−16,961        56,752         2   0.5%   127    6    0
+```
+
+> 解读：闫晓的「61 万增量」经分类后仅 7,251 行为低价值（噪音 1.1%），其 994,820 有效改动是真实源码贡献；jinxin3 净删 10.6 万行，但 `有效改动` 把删改计入 churn（342,857），因此清理旧模块是**正向**贡献——这正是行数口径无法体现的。
+
+### 关键文件
+
+- `src/core/contribution-config.ts` - 去噪正则 / 分类规则 / 权重（方案 B 与方案 A 共享同一套口径）
+- `src/core/contribution-analyzer.ts` - `parseNumstat` / `analyzeCommits`（纯函数，便于单测）/ `analyze`
+- `src/git/git-collector.ts` - `getNumstatLog`（取数）、`getSurvivalLines`（存活代码行）
+- `src/cli/commands/quality.ts` - `quality` 命令执行器与表格输出
+- `src/cli/index.ts` - 注册 `quality` 子命令
+
 ## 📚 更多信息
 
 - 查看完整文档: `code996 help`
